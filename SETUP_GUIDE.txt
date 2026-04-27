@@ -1,0 +1,134 @@
+===============================================================
+  FOREX MAJORS MOMENTUM SCALPER - SETUP GUIDE (macOS + MT5)
+===============================================================
+
+1. LOCATE YOUR MT5 DATA FOLDER
+-------------------------------
+   - Open MetaTrader 5
+   - Menu: File > Open Data Folder
+   - This opens a Finder window (the "data folder")
+   - Navigate to: MQL5/Experts/
+
+2. COPY THE EA FILE
+-------------------------------
+   - Copy ForexMajors_MomentumScalper.mq5 into that Experts folder
+   - Full path will look like:
+     <MT5 Data Folder>/MQL5/Experts/ForexMajors_MomentumScalper.mq5
+
+3. COMPILE THE EA
+-------------------------------
+   - In MT5, open MetaEditor (press F4 or Tools > MetaQuotes Language Editor)
+   - In the Navigator panel, find Experts > ForexMajors_MomentumScalper.mq5
+   - Double-click to open it
+   - Press F7 (or Compile button) to compile
+   - Check the bottom panel for "0 errors" - warnings are OK
+   - Close MetaEditor and return to MT5
+
+4. ATTACH THE EA TO A CHART
+-------------------------------
+   - Open any Forex chart (e.g., EURUSD M15)
+   - The EA scans ALL 7 majors from a single chart, so you only need one
+   - In the Navigator panel (Ctrl+N), expand Expert Advisors
+   - Drag "ForexMajors_MomentumScalper" onto the chart
+   - A settings dialog will appear
+
+5. CONFIGURE SETTINGS
+-------------------------------
+   On the "Common" tab:
+   - CHECK "Allow Algo Trading"
+
+   On the "Inputs" tab (adjust if needed):
+
+   CRITICAL SETTINGS:
+   - Symbol Suffix: If your broker uses suffixes (e.g., "EURUSDm" or
+     "EURUSD.raw"), enter the suffix here (e.g., "m" or ".raw")
+     Leave blank if your broker uses standard names like "EURUSD"
+
+   DEFAULT SETTINGS (tuned for 900 AUD):
+   - Risk % per Trade     = 2.0    (risks ~18 AUD per trade)
+   - Stop Loss ATR Multi  = 1.5    (dynamic SL based on volatility)
+   - Take Profit ATR Multi= 3.75   (R:R = 1:2.5, targets ~5% per win)
+   - Max Concurrent Trades= 3      (max exposure ~6%)
+   - Max Lot Size         = 0.10   (safety cap)
+   - Max Daily Loss %     = 5.0    (circuit breaker stops trading)
+   - Max Hold Bars        = 48     (auto-exit after 12 hours on M15)
+   - Session Start GMT    = 7      (London open)
+   - Session End GMT      = 20     (NY close)
+   - Max Spread Pips      = 3.0    (skip high-spread conditions)
+
+6. ENABLE ALGO TRADING
+-------------------------------
+   - In the MT5 toolbar, click the "Algo Trading" button (make sure
+     it shows green/enabled, not red/disabled)
+   - The EA should now show a smiley face on the chart
+
+7. VERIFY IT'S RUNNING
+-------------------------------
+   - You should see the dashboard overlay on the chart showing:
+     Balance, Equity, Daily P/L, Trade count, Session status
+   - Check the Experts tab (Ctrl+Shift+E) for initialization messages
+   - It should say "EA started: 7 symbols active"
+
+===============================================================
+  STRATEGY OVERVIEW
+===============================================================
+
+ENTRY LOGIC:
+  - EMA(8) crosses EMA(21) = momentum signal
+  - Price above EMA(50) for longs / below for shorts = trend filter
+  - RSI(14) in range = momentum confirmation (not overbought/oversold)
+  - Only during London/NY sessions (07:00-20:00 GMT)
+  - Spread must be under 3 pips
+
+RISK MANAGEMENT:
+  - 2% equity risked per trade (~18 AUD on 900 AUD)
+  - Stop Loss = 1.5 x ATR(14) - adapts to market volatility
+  - Take Profit = 3.75 x ATR(14) - gives R:R of 1:2.5
+  - Breakeven: SL moves to entry price at 1.5 ATR profit
+  - Trailing Stop: Activates at 2.5 ATR profit, trails at 1 ATR
+  - Max 3 trades open at once
+  - 5% daily loss limit halts all trading for the day
+  - Auto-exit after 48 bars (12 hours on M15)
+
+SYMBOLS TRADED:
+  EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, NZDUSD, USDCAD
+
+EXPECTED PERFORMANCE (per trade):
+  - Win: ~5% of equity (R:R 1:2.5 with 2% risk)
+  - Loss: ~2% of equity
+  - Breakeven: frequent due to trailing stop
+  - You need ~30% win rate to be profitable
+
+===============================================================
+  IMPORTANT NOTES
+===============================================================
+
+- BACKTEST FIRST: Before live trading, run a backtest:
+  Menu > View > Strategy Tester
+  Select the EA, set dates, run on M15, check results
+
+- DEMO ACCOUNT: Test on a demo account for at least 1-2 weeks
+  before going live with real money
+
+- SYMBOL SUFFIX: This is the #1 issue. If no trades appear,
+  check your broker's symbol names in Market Watch (Ctrl+M).
+  Common suffixes: "m", ".raw", ".ecn", ".pro", "#"
+
+- TIMEZONE: The session filter uses GMT. If your trades seem
+  off-hours, verify TimeGMT() is correct in the Experts log.
+
+- LOT SIZES: With 900 AUD, expect lots of 0.02-0.08 depending
+  on the pair and current ATR. The EA calculates this dynamically.
+
+- MONITORING: Check the Experts tab and Journal tab for trade
+  entries, exits, and any error messages.
+
+===============================================================
+  DISCLAIMER
+===============================================================
+Trading forex involves substantial risk. Past performance does
+not guarantee future results. This EA is a tool, not financial
+advice. Always use proper risk management and never trade with
+money you cannot afford to lose. Test thoroughly on a demo
+account before live trading.
+===============================================================
