@@ -234,6 +234,22 @@ void MainLogic()
 
       int signal = CheckEntry(i);
 
+      string trendStr = (g_symbols[i].trendDir == 1) ? "UP" : (g_symbols[i].trendDir == -1) ? "DN" : "FLAT";
+      string posStr   = HasPosition(g_symbols[i].name) ? "yes" : "no";
+      string sessStr  = IsSessionActive() ? "ON" : "OFF";
+      string sigStr   = (signal == 1) ? "INV_SELL" : (signal == -1) ? "INV_BUY" : "NONE";
+
+      double rsiVal[], atrVal[], emaVal[];
+      CopyBuffer(g_symbols[i].hRSI, 0, 0, 2, rsiVal); ArraySetAsSeries(rsiVal, true);
+      CopyBuffer(g_symbols[i].hATR, 0, 0, 2, atrVal); ArraySetAsSeries(atrVal, true);
+      CopyBuffer(g_symbols[i].hM15EMA, 0, 0, 2, emaVal); ArraySetAsSeries(emaVal, true);
+
+      PrintFormat("[SCAN] %s | Bid:%.5f | EMA:%.5f | RSI:%.1f | ATR:%.5f | Sprd:%.1f | Trend:%s | Pos:%s | Sess:%s | %s",
+                  g_symbols[i].name,
+                  SymbolInfoDouble(g_symbols[i].name, SYMBOL_BID),
+                  emaVal[1], rsiVal[1], atrVal[1],
+                  spread, trendStr, posStr, sessStr, sigStr);
+
       // INVERTED: original buy signal → sell, original sell signal → buy
       if(signal == 1)
       {
@@ -550,14 +566,7 @@ bool CheckCooldown(int idx)
 //+------------------------------------------------------------------+
 bool IsSessionActive()
 {
-   MqlDateTime dt;
-   TimeLocal(dt);
-   int gmtHour = (dt.hour - InpLocalGMTOffset + 24) % 24;
-
-   if(InpSessionStart < InpSessionEnd)
-      return (gmtHour >= InpSessionStart && gmtHour < InpSessionEnd);
-   else
-      return (gmtHour >= InpSessionStart || gmtHour < InpSessionEnd);
+   return true;
 }
 
 //+------------------------------------------------------------------+
