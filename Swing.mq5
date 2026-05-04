@@ -154,6 +154,11 @@ int OnInit()
       else
          g_symbols[idx].pipSize = SymbolInfoDouble(sym, SYMBOL_POINT);
 
+      // Prime history so indicators can warm up (D1 EMA200 needs 200+ bars)
+      datetime dummy[];
+      CopyTime(sym, PERIOD_D1,  0, InpD1EMASlow + 20, dummy);
+      CopyTime(sym, InpEntryTF, 0, 100, dummy);
+
       g_symbols[idx].hD1EMAFast = iMA(sym,  PERIOD_D1,    InpD1EMAFast, 0, MODE_EMA, PRICE_CLOSE);
       g_symbols[idx].hD1EMASlow = iMA(sym,  PERIOD_D1,    InpD1EMASlow, 0, MODE_EMA, PRICE_CLOSE);
       g_symbols[idx].hD1ADX     = iADX(sym, PERIOD_D1,    InpD1ADXPeriod);
@@ -356,6 +361,25 @@ void MainLogic()
 }
 
 //+------------------------------------------------------------------+
+//| Check all indicator handles have enough calculated bars           |
+//+------------------------------------------------------------------+
+bool IndicatorsReady(int idx)
+{
+   int minD1 = InpD1EMASlow + 2;
+   int minH4 = MathMax(InpEntryEMA, MathMax(InpMACDSlow + InpMACDSignal, InpDonchianPeriod + 2)) + 2;
+
+   if(BarsCalculated(g_symbols[idx].hD1EMAFast) < minD1) return false;
+   if(BarsCalculated(g_symbols[idx].hD1EMASlow) < minD1) return false;
+   if(BarsCalculated(g_symbols[idx].hD1ADX)     < minD1) return false;
+   if(BarsCalculated(g_symbols[idx].hEntryEMA)  < minH4) return false;
+   if(BarsCalculated(g_symbols[idx].hRSI)       < minH4) return false;
+   if(BarsCalculated(g_symbols[idx].hATR)       < minH4) return false;
+   if(BarsCalculated(g_symbols[idx].hADX)       < minH4) return false;
+   if(BarsCalculated(g_symbols[idx].hMACD)      < minH4) return false;
+   return true;
+}
+
+//+------------------------------------------------------------------+
 //| Signal engine                                                     |
 //| sigType: 1=Pullback continuation, 2=Donchian breakout             |
 //| Returns: 1=Buy, -1=Sell, 0=None                                   |
@@ -365,14 +389,25 @@ int CheckSignal(int idx, int &sigType)
    sigType = 0;
    string sym = g_symbols[idx].name;
 
+   // --- Readiness check: indicators need enough history loaded ---
+   if(!IndicatorsReady(idx))
+   {
+      if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | WARMUP — indicators loading history", sym);
+      // Nudge MT5 to fetch the history we need
+      datetime dummy[];
+      CopyTime(sym, PERIOD_D1,  0, InpD1EMASlow + 20, dummy);
+      CopyTime(sym, InpEntryTF, 0, 100, dummy);
+      return 0;
+   }
+
    // --- D1 trend filter ---
    double d1Fast[2], d1Slow[2], d1AdxMain[2];
    if(CopyBuffer(g_symbols[idx].hD1EMAFast, 0, 0, 2, d1Fast)    != 2)
-   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT D1EMAFast buffer read failed", sym); return 0; }
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | WARMUP D1EMAFast", sym); return 0; }
    if(CopyBuffer(g_symbols[idx].hD1EMASlow, 0, 0, 2, d1Slow)    != 2)
-   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT D1EMASlow buffer read failed", sym); return 0; }
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | WARMUP D1EMASlow", sym); return 0; }
    if(CopyBuffer(g_symbols[idx].hD1ADX,     0, 0, 2, d1AdxMain) != 2)
-   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT D1ADX buffer read failed", sym); return 0; }
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | WARMUP D1ADX", sym); return 0; }
    ArraySetAsSeries(d1Fast, true);
    ArraySetAsSeries(d1Slow, true);
    ArraySetAsSeries(d1AdxMain, true);
@@ -393,17 +428,17 @@ int CheckSignal(int idx, int &sigType)
    double macdMain[3], macdSig[3];
 
    if(CopyBuffer(g_symbols[idx].hEntryEMA, 0, 0, 3, ema)     != 3)
-   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT H4EMA buffer read failed", sym); return 0; }
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | WARMUP H4EMA", sym); return 0; }
    if(CopyBuffer(g_symbols[idx].hRSI,      0, 0, 3, rsi)     != 3)
-   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT RSI buffer read failed", sym); return 0; }
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | WARMUP RSI", sym); return 0; }
    if(CopyBuffer(g_symbols[idx].hATR,      0, 0, 3, atr)     != 3)
-   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT ATR buffer read failed", sym); return 0; }
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | WARMUP ATR", sym); return 0; }
    if(CopyBuffer(g_symbols[idx].hADX,      0, 0, 3, adxMain) != 3)
-   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT H4ADX buffer read failed", sym); return 0; }
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | WARMUP H4ADX", sym); return 0; }
    if(CopyBuffer(g_symbols[idx].hMACD,     0, 0, 3, macdMain) != 3)
-   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT MACDMain buffer read failed", sym); return 0; }
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | WARMUP MACDMain", sym); return 0; }
    if(CopyBuffer(g_symbols[idx].hMACD,     1, 0, 3, macdSig)  != 3)
-   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT MACDSignal buffer read failed", sym); return 0; }
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | WARMUP MACDSignal", sym); return 0; }
 
    ArraySetAsSeries(ema, true);
    ArraySetAsSeries(rsi, true);
