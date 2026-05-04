@@ -53,7 +53,6 @@ input int    InpMaxHoldBars            = 120;           // Max H4 bars to hold (
 input group "=== Session & Weekend ==="
 input int    InpSessionStart           = 7;             // Entry Session Start Hour (GMT)
 input int    InpSessionEnd             = 20;            // Entry Session End Hour (GMT)
-input int    InpLocalGMTOffset         = 10;            // Local GMT Offset (Melbourne=10)
 input bool   InpCloseBeforeWeekend     = true;          // Close all positions before weekend
 input int    InpFridayCloseHourGMT     = 20;            // Friday close hour (GMT)
 
@@ -827,13 +826,18 @@ bool CheckCooldown(int idx)
 bool IsSessionActive()
 {
    MqlDateTime dt;
-   TimeLocal(dt);
-   int gmtHour = (dt.hour - InpLocalGMTOffset + 24) % 24;
+   TimeGMT(dt);
+   int gmtHour = dt.hour;
 
+   bool active;
    if(InpSessionStart < InpSessionEnd)
-      return (gmtHour >= InpSessionStart && gmtHour < InpSessionEnd);
+      active = (gmtHour >= InpSessionStart && gmtHour < InpSessionEnd);
    else
-      return (gmtHour >= InpSessionStart || gmtHour < InpSessionEnd);
+      active = (gmtHour >= InpSessionStart || gmtHour < InpSessionEnd);
+
+   if(InpLogEveryCheck && !active)
+      PrintFormat("[SESSION] GMT hour=%d window=%d-%d -> CLOSED", gmtHour, InpSessionStart, InpSessionEnd);
+   return active;
 }
 
 //+------------------------------------------------------------------+
@@ -842,15 +846,8 @@ bool IsSessionActive()
 bool IsFridayCloseTime()
 {
    MqlDateTime dt;
-   TimeLocal(dt);
-   int gmtHour = (dt.hour - InpLocalGMTOffset + 24) % 24;
-   // dt.day_of_week: 0=Sun..6=Sat. TimeLocal is local; convert to GMT day if hour rolls.
-   int gmtDow = dt.day_of_week;
-   int hourDelta = dt.hour - InpLocalGMTOffset;
-   if(hourDelta < 0)       gmtDow = (gmtDow + 6) % 7;
-   else if(hourDelta >= 24) gmtDow = (gmtDow + 1) % 7;
-
-   return (gmtDow == 5 && gmtHour >= InpFridayCloseHourGMT); // 5 = Friday
+   TimeGMT(dt);
+   return (dt.day_of_week == 5 && dt.hour >= InpFridayCloseHourGMT); // 5 = Friday
 }
 
 //+------------------------------------------------------------------+
