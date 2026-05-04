@@ -66,7 +66,8 @@ input group "=== General ==="
 input long   InpMagic                  = 820515;        // Magic Number
 input bool   InpAlerts                 = false;         // Enable Alerts
 input bool   InpPushNotify             = false;         // Enable Push Notifications
-input bool   InpVerboseLog             = false;         // Verbose per-bar logging
+input bool   InpVerboseLog             = true;          // Verbose per-bar logging (per-symbol scan lines)
+input bool   InpLogEveryCheck          = true;          // Log every signal check with reason code
 
 //+------------------------------------------------------------------+
 //| Per-symbol data                                                   |
@@ -240,8 +241,16 @@ void OnTick()
 //+------------------------------------------------------------------+
 void MainLogic()
 {
-   if(!TerminalInfoInteger(TERMINAL_CONNECTED)) return;
-   if(!MQLInfoInteger(MQL_TRADE_ALLOWED)) return;
+   if(!TerminalInfoInteger(TERMINAL_CONNECTED))
+   {
+      if(InpLogEveryCheck) Print("[MAIN] SKIP: terminal not connected");
+      return;
+   }
+   if(!MQLInfoInteger(MQL_TRADE_ALLOWED))
+   {
+      if(InpLogEveryCheck) Print("[MAIN] SKIP: trading not allowed");
+      return;
+   }
 
    datetime today = iTime(_Symbol, PERIOD_D1, 0);
    if(today != g_lastDay)
@@ -277,25 +286,59 @@ void MainLogic()
    ManagePositions();
 
    int openCount = CountOpenTrades();
+   int scannedThisCycle = 0;
 
    for(int i = 0; i < g_numSymbols; i++)
    {
       if(!g_symbols[i].active) continue;
       if(!IsNewBar(i)) continue;
 
+      scannedThisCycle++;
+      string sym = g_symbols[i].name;
+      PrintFormat("[MAIN] >>> New H4 bar on %s @ %s | openTrades=%d/%d",
+                  sym, TimeToString(iTime(sym, InpEntryTF, 0), TIME_DATE|TIME_MINUTES),
+                  openCount, InpMaxTrades);
+
       if(InpVerboseLog) LogBarCheck(i);
 
-      if(openCount >= InpMaxTrades) continue;
-      if(HasPosition(g_symbols[i].name)) continue;
-      if(!IsSessionActive()) continue;
-      if(!CheckCurrencyExposure(g_symbols[i].name)) continue;
-      if(!CheckCooldown(i)) continue;
+      if(openCount >= InpMaxTrades)
+      {
+         if(InpLogEveryCheck) PrintFormat("[CHECK] %s | SKIP MaxTrades (%d/%d)", sym, openCount, InpMaxTrades);
+         continue;
+      }
+      if(HasPosition(sym))
+      {
+         if(InpLogEveryCheck) PrintFormat("[CHECK] %s | SKIP HasPosition", sym);
+         continue;
+      }
+      if(!IsSessionActive())
+      {
+         if(InpLogEveryCheck) PrintFormat("[CHECK] %s | SKIP SessionClosed", sym);
+         continue;
+      }
+      if(!CheckCurrencyExposure(sym))
+      {
+         if(InpLogEveryCheck) PrintFormat("[CHECK] %s | SKIP CurrencyExposure", sym);
+         continue;
+      }
+      if(!CheckCooldown(i))
+      {
+         if(InpLogEveryCheck) PrintFormat("[CHECK] %s | SKIP Cooldown", sym);
+         continue;
+      }
 
       double spreadLimit = g_symbols[i].isExotic ? InpMaxSpreadPipsExotic : InpMaxSpreadPips;
-      if(GetSpreadPips(i) > spreadLimit) continue;
+      double spread = GetSpreadPips(i);
+      if(spread > spreadLimit)
+      {
+         if(InpLogEveryCheck) PrintFormat("[CHECK] %s | SKIP Spread %.1f > %.1f", sym, spread, spreadLimit);
+         continue;
+      }
 
       int sigType = 0;
       int signal = CheckSignal(i, sigType);
+      if(InpLogEveryCheck && signal == 0)
+         PrintFormat("[CHECK] %s | NO SIGNAL (filters passed, signal engine returned 0)", sym);
 
       if(signal == 1)
       {
@@ -306,6 +349,9 @@ void MainLogic()
          if(OpenSell(i, sigType)) { openCount++; g_todayTrades++; }
       }
    }
+
+   if(scannedThisCycle > 0)
+      PrintFormat("[MAIN] Cycle done: %d new bars scanned, %d open trades", scannedThisCycle, CountOpenTrades());
 
    DisplayDashboard("");
 }
@@ -322,9 +368,12 @@ int CheckSignal(int idx, int &sigType)
 
    // --- D1 trend filter ---
    double d1Fast[2], d1Slow[2], d1AdxMain[2];
-   if(CopyBuffer(g_symbols[idx].hD1EMAFast, 0, 0, 2, d1Fast)    != 2) return 0;
-   if(CopyBuffer(g_symbols[idx].hD1EMASlow, 0, 0, 2, d1Slow)    != 2) return 0;
-   if(CopyBuffer(g_symbols[idx].hD1ADX,     0, 0, 2, d1AdxMain) != 2) return 0;
+   if(CopyBuffer(g_symbols[idx].hD1EMAFast, 0, 0, 2, d1Fast)    != 2)
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT D1EMAFast buffer read failed", sym); return 0; }
+   if(CopyBuffer(g_symbols[idx].hD1EMASlow, 0, 0, 2, d1Slow)    != 2)
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT D1EMASlow buffer read failed", sym); return 0; }
+   if(CopyBuffer(g_symbols[idx].hD1ADX,     0, 0, 2, d1AdxMain) != 2)
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT D1ADX buffer read failed", sym); return 0; }
    ArraySetAsSeries(d1Fast, true);
    ArraySetAsSeries(d1Slow, true);
    ArraySetAsSeries(d1AdxMain, true);
@@ -332,18 +381,30 @@ int CheckSignal(int idx, int &sigType)
    int d1Trend = 0;
    if(d1Fast[1] > d1Slow[1] && d1AdxMain[1] >= InpD1ADXMin)      d1Trend = 1;
    else if(d1Fast[1] < d1Slow[1] && d1AdxMain[1] >= InpD1ADXMin) d1Trend = -1;
-   if(d1Trend == 0) return 0;
+   if(d1Trend == 0)
+   {
+      if(InpLogEveryCheck)
+         PrintFormat("[SIGNAL] %s | REJECT D1Trend flat (EMA50=%.5f EMA200=%.5f ADX=%.1f min=%.1f)",
+                     sym, d1Fast[1], d1Slow[1], d1AdxMain[1], InpD1ADXMin);
+      return 0;
+   }
 
    // --- H4 indicators ---
    double ema[3], rsi[3], atr[3], adxMain[3];
    double macdMain[3], macdSig[3];
 
-   if(CopyBuffer(g_symbols[idx].hEntryEMA, 0, 0, 3, ema)     != 3) return 0;
-   if(CopyBuffer(g_symbols[idx].hRSI,      0, 0, 3, rsi)     != 3) return 0;
-   if(CopyBuffer(g_symbols[idx].hATR,      0, 0, 3, atr)     != 3) return 0;
-   if(CopyBuffer(g_symbols[idx].hADX,      0, 0, 3, adxMain) != 3) return 0;
-   if(CopyBuffer(g_symbols[idx].hMACD,     0, 0, 3, macdMain) != 3) return 0;
-   if(CopyBuffer(g_symbols[idx].hMACD,     1, 0, 3, macdSig)  != 3) return 0;
+   if(CopyBuffer(g_symbols[idx].hEntryEMA, 0, 0, 3, ema)     != 3)
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT H4EMA buffer read failed", sym); return 0; }
+   if(CopyBuffer(g_symbols[idx].hRSI,      0, 0, 3, rsi)     != 3)
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT RSI buffer read failed", sym); return 0; }
+   if(CopyBuffer(g_symbols[idx].hATR,      0, 0, 3, atr)     != 3)
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT ATR buffer read failed", sym); return 0; }
+   if(CopyBuffer(g_symbols[idx].hADX,      0, 0, 3, adxMain) != 3)
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT H4ADX buffer read failed", sym); return 0; }
+   if(CopyBuffer(g_symbols[idx].hMACD,     0, 0, 3, macdMain) != 3)
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT MACDMain buffer read failed", sym); return 0; }
+   if(CopyBuffer(g_symbols[idx].hMACD,     1, 0, 3, macdSig)  != 3)
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT MACDSignal buffer read failed", sym); return 0; }
 
    ArraySetAsSeries(ema, true);
    ArraySetAsSeries(rsi, true);
@@ -354,20 +415,27 @@ int CheckSignal(int idx, int &sigType)
 
    double close1 = iClose(sym, InpEntryTF, 1);
    double close2 = iClose(sym, InpEntryTF, 2);
-   if(close1 == 0 || close2 == 0) return 0;
+   if(close1 == 0 || close2 == 0)
+   { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT close price zero", sym); return 0; }
 
    // Dead market filter (ATR too small relative to pip size)
-   if(atr[1] < g_symbols[idx].pipSize * 5) return 0;
+   if(atr[1] < g_symbols[idx].pipSize * 5)
+   {
+      if(InpLogEveryCheck)
+         PrintFormat("[SIGNAL] %s | REJECT DeadMarket ATR=%.5f < %.5f (5x pip)",
+                     sym, atr[1], g_symbols[idx].pipSize * 5);
+      return 0;
+   }
 
    double macdHist1 = macdMain[1] - macdSig[1];
    double macdHist2 = macdMain[2] - macdSig[2];
+   string trendStr  = (d1Trend == 1) ? "UP" : "DOWN";
 
    // === SIGNAL 1: PULLBACK CONTINUATION ===
-   // Price pulls back to EMA20, RSI crosses back through threshold, MACD hist turns in trend dir
    double emaDist = MathAbs(close1 - ema[1]);
    bool nearEMA = (emaDist <= InpPullbackMaxATR * atr[1]);
 
-   if(d1Trend == 1 && nearEMA)
+   if(d1Trend == 1)
    {
       bool touchedEMA    = (iLow(sym, InpEntryTF, 1) <= ema[1] ||
                             iLow(sym, InpEntryTF, 2) <= ema[2]);
@@ -375,14 +443,24 @@ int CheckSignal(int idx, int &sigType)
       bool macdTurnUp    = (macdHist1 > macdHist2 && macdHist1 > 0);
       bool closeAboveEMA = (close1 > ema[1]);
 
-      if(touchedEMA && rsiCrossUp && macdTurnUp && closeAboveEMA)
+      if(nearEMA && touchedEMA && rsiCrossUp && macdTurnUp && closeAboveEMA)
       {
          sigType = 1;
+         PrintFormat("[SIGNAL] %s | >> BUY PULLBACK << D1=%s RSI=%.1f MACDh=%.5f EMA=%.5f close=%.5f",
+                     sym, trendStr, rsi[1], macdHist1, ema[1], close1);
          return 1;
       }
+      if(InpLogEveryCheck)
+         PrintFormat("[SIGNAL] %s | D1=%s PB chk: near=%s touch=%s rsiCross=%s(%.1f>%.0f) macdUp=%s(%.5f>%.5f) closeAbove=%s",
+                     sym, trendStr,
+                     nearEMA ? "Y" : "N",
+                     touchedEMA ? "Y" : "N",
+                     rsiCrossUp ? "Y" : "N", rsi[1], InpRSILongPullback,
+                     macdTurnUp ? "Y" : "N", macdHist1, macdHist2,
+                     closeAboveEMA ? "Y" : "N");
    }
 
-   if(d1Trend == -1 && nearEMA)
+   if(d1Trend == -1)
    {
       bool touchedEMA    = (iHigh(sym, InpEntryTF, 1) >= ema[1] ||
                             iHigh(sym, InpEntryTF, 2) >= ema[2]);
@@ -390,14 +468,24 @@ int CheckSignal(int idx, int &sigType)
       bool macdTurnDn    = (macdHist1 < macdHist2 && macdHist1 < 0);
       bool closeBelowEMA = (close1 < ema[1]);
 
-      if(touchedEMA && rsiCrossDn && macdTurnDn && closeBelowEMA)
+      if(nearEMA && touchedEMA && rsiCrossDn && macdTurnDn && closeBelowEMA)
       {
          sigType = 1;
+         PrintFormat("[SIGNAL] %s | >> SELL PULLBACK << D1=%s RSI=%.1f MACDh=%.5f EMA=%.5f close=%.5f",
+                     sym, trendStr, rsi[1], macdHist1, ema[1], close1);
          return -1;
       }
+      if(InpLogEveryCheck)
+         PrintFormat("[SIGNAL] %s | D1=%s PB chk: near=%s touch=%s rsiCross=%s(%.1f<%.0f) macdDn=%s(%.5f<%.5f) closeBelow=%s",
+                     sym, trendStr,
+                     nearEMA ? "Y" : "N",
+                     touchedEMA ? "Y" : "N",
+                     rsiCrossDn ? "Y" : "N", rsi[1], InpRSIShortPullback,
+                     macdTurnDn ? "Y" : "N", macdHist1, macdHist2,
+                     closeBelowEMA ? "Y" : "N");
    }
 
-   // === SIGNAL 2: DONCHIAN BREAKOUT (strong trends that don't pull back) ===
+   // === SIGNAL 2: DONCHIAN BREAKOUT ===
    if(adxMain[1] >= InpBreakoutADXMin)
    {
       double highestHigh = iHigh(sym, InpEntryTF, iHighest(sym, InpEntryTF, MODE_HIGH, InpDonchianPeriod, 2));
@@ -406,13 +494,25 @@ int CheckSignal(int idx, int &sigType)
       if(d1Trend == 1 && close1 > highestHigh && rsi[1] < 75 && macdMain[1] > macdSig[1])
       {
          sigType = 2;
+         PrintFormat("[SIGNAL] %s | >> BUY BREAKOUT << close=%.5f > HH=%.5f ADX=%.1f",
+                     sym, close1, highestHigh, adxMain[1]);
          return 1;
       }
       if(d1Trend == -1 && close1 < lowestLow && rsi[1] > 25 && macdMain[1] < macdSig[1])
       {
          sigType = 2;
+         PrintFormat("[SIGNAL] %s | >> SELL BREAKOUT << close=%.5f < LL=%.5f ADX=%.1f",
+                     sym, close1, lowestLow, adxMain[1]);
          return -1;
       }
+      if(InpLogEveryCheck)
+         PrintFormat("[SIGNAL] %s | BO chk: ADX=%.1f>=%.0f close=%.5f HH=%.5f LL=%.5f RSI=%.1f MACD=%.5f sig=%.5f",
+                     sym, adxMain[1], InpBreakoutADXMin, close1, highestHigh, lowestLow,
+                     rsi[1], macdMain[1], macdSig[1]);
+   }
+   else if(InpLogEveryCheck)
+   {
+      PrintFormat("[SIGNAL] %s | BO skip: ADX=%.1f < %.0f", sym, adxMain[1], InpBreakoutADXMin);
    }
 
    return 0;
