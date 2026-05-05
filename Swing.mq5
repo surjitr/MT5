@@ -19,7 +19,7 @@ input group "=== Trend Filter (D1) ==="
 input int    InpD1EMAFast              = 50;            // D1 Fast EMA
 input int    InpD1EMASlow              = 200;           // D1 Slow EMA
 input int    InpD1ADXPeriod            = 14;            // D1 ADX Period
-input double InpD1ADXMin               = 20.0;          // Min ADX to confirm trend
+input double InpD1ADXMin               = 18.0;          // Min ADX to confirm trend
 
 input group "=== Entry Timing (H4) ==="
 input ENUM_TIMEFRAMES InpEntryTF       = PERIOD_H4;     // Entry Timeframe
@@ -30,10 +30,12 @@ input int    InpDonchianPeriod         = 20;            // Donchian Breakout Per
 input int    InpMACDFast               = 12;            // MACD Fast
 input int    InpMACDSlow               = 26;            // MACD Slow
 input int    InpMACDSignal             = 9;             // MACD Signal
-input double InpRSILongPullback        = 45.0;          // RSI must cross up through this for longs
-input double InpRSIShortPullback       = 55.0;          // RSI must cross down through this for shorts
-input double InpBreakoutADXMin         = 25.0;          // Min ADX for breakout entries
-input double InpPullbackMaxATR         = 0.8;           // Max distance from EMA in ATR for pullback entry
+input double InpRSILongMin             = 40.0;          // Long RSI zone min (was cross-threshold 45)
+input double InpRSILongMax             = 65.0;          // Long RSI zone max
+input double InpRSIShortMin            = 35.0;          // Short RSI zone min
+input double InpRSIShortMax            = 60.0;          // Short RSI zone max
+input double InpBreakoutADXMin         = 22.0;          // Min ADX for breakout entries
+input double InpPullbackMaxATR         = 1.2;           // Max distance from EMA in ATR for pullback entry
 
 input group "=== Risk Management ==="
 input double InpRiskPercent            = 2.0;           // Risk % per Trade
@@ -51,8 +53,8 @@ input int    InpCooldownBars           = 6;             // Min H4 bars between e
 input int    InpMaxHoldBars            = 120;           // Max H4 bars to hold (~20 trading days)
 
 input group "=== Session & Weekend ==="
-input int    InpSessionStart           = 7;             // Entry Session Start Hour (GMT)
-input int    InpSessionEnd             = 20;            // Entry Session End Hour (GMT)
+input int    InpSessionStart           = 0;             // Entry Session Start Hour (GMT, 0-24)
+input int    InpSessionEnd             = 23;            // Entry Session End Hour (GMT)
 input bool   InpCloseBeforeWeekend     = true;          // Close all positions before weekend
 input int    InpFridayCloseHourGMT     = 20;            // Friday close hour (GMT)
 
@@ -453,11 +455,11 @@ int CheckSignal(int idx, int &sigType)
    { if(InpLogEveryCheck) PrintFormat("[SIGNAL] %s | REJECT close price zero", sym); return 0; }
 
    // Dead market filter (ATR too small relative to pip size)
-   if(atr[1] < g_symbols[idx].pipSize * 5)
+   if(atr[1] < g_symbols[idx].pipSize * 3)
    {
       if(InpLogEveryCheck)
-         PrintFormat("[SIGNAL] %s | REJECT DeadMarket ATR=%.5f < %.5f (5x pip)",
-                     sym, atr[1], g_symbols[idx].pipSize * 5);
+         PrintFormat("[SIGNAL] %s | REJECT DeadMarket ATR=%.5f < %.5f (3x pip)",
+                     sym, atr[1], g_symbols[idx].pipSize * 3);
       return 0;
    }
 
@@ -465,19 +467,20 @@ int CheckSignal(int idx, int &sigType)
    double macdHist2 = macdMain[2] - macdSig[2];
    string trendStr  = (d1Trend == 1) ? "UP" : "DOWN";
 
-   // === SIGNAL 1: PULLBACK CONTINUATION ===
+   // === SIGNAL 1: PULLBACK CONTINUATION (relaxed — zones + rising momentum) ===
    double emaDist = MathAbs(close1 - ema[1]);
    bool nearEMA = (emaDist <= InpPullbackMaxATR * atr[1]);
 
    if(d1Trend == 1)
    {
-      bool touchedEMA    = (iLow(sym, InpEntryTF, 1) <= ema[1] ||
-                            iLow(sym, InpEntryTF, 2) <= ema[2]);
-      bool rsiCrossUp    = (rsi[2] < InpRSILongPullback && rsi[1] >= InpRSILongPullback);
-      bool macdTurnUp    = (macdHist1 > macdHist2 && macdHist1 > 0);
-      bool closeAboveEMA = (close1 > ema[1]);
+      // Pullback evidence: bar 2 pulled back toward EMA (within 1.5 ATR), now closing back up
+      bool pulledBack    = (iLow(sym, InpEntryTF, 2) <= ema[2] + atr[1] * 0.5);
+      bool rsiInZone     = (rsi[1] >= InpRSILongMin && rsi[1] <= InpRSILongMax);
+      bool rsiRising     = (rsi[1] > rsi[2]);
+      bool macdRising    = (macdHist1 > macdHist2);
+      bool bullishClose  = (close1 > close2);
 
-      if(nearEMA && touchedEMA && rsiCrossUp && macdTurnUp && closeAboveEMA)
+      if(nearEMA && pulledBack && rsiInZone && rsiRising && macdRising && bullishClose)
       {
          sigType = 1;
          PrintFormat("[SIGNAL] %s | >> BUY PULLBACK << D1=%s RSI=%.1f MACDh=%.5f EMA=%.5f close=%.5f",
@@ -485,24 +488,25 @@ int CheckSignal(int idx, int &sigType)
          return 1;
       }
       if(InpLogEveryCheck)
-         PrintFormat("[SIGNAL] %s | D1=%s PB chk: near=%s touch=%s rsiCross=%s(%.1f>%.0f) macdUp=%s(%.5f>%.5f) closeAbove=%s",
+         PrintFormat("[SIGNAL] %s | D1=%s PB: near=%s pulled=%s rsiZone=%s(%.1f in %.0f-%.0f) rsiUp=%s macdUp=%s(%.5f>%.5f) bullClose=%s",
                      sym, trendStr,
                      nearEMA ? "Y" : "N",
-                     touchedEMA ? "Y" : "N",
-                     rsiCrossUp ? "Y" : "N", rsi[1], InpRSILongPullback,
-                     macdTurnUp ? "Y" : "N", macdHist1, macdHist2,
-                     closeAboveEMA ? "Y" : "N");
+                     pulledBack ? "Y" : "N",
+                     rsiInZone ? "Y" : "N", rsi[1], InpRSILongMin, InpRSILongMax,
+                     rsiRising ? "Y" : "N",
+                     macdRising ? "Y" : "N", macdHist1, macdHist2,
+                     bullishClose ? "Y" : "N");
    }
 
    if(d1Trend == -1)
    {
-      bool touchedEMA    = (iHigh(sym, InpEntryTF, 1) >= ema[1] ||
-                            iHigh(sym, InpEntryTF, 2) >= ema[2]);
-      bool rsiCrossDn    = (rsi[2] > InpRSIShortPullback && rsi[1] <= InpRSIShortPullback);
-      bool macdTurnDn    = (macdHist1 < macdHist2 && macdHist1 < 0);
-      bool closeBelowEMA = (close1 < ema[1]);
+      bool pulledBack    = (iHigh(sym, InpEntryTF, 2) >= ema[2] - atr[1] * 0.5);
+      bool rsiInZone     = (rsi[1] >= InpRSIShortMin && rsi[1] <= InpRSIShortMax);
+      bool rsiFalling    = (rsi[1] < rsi[2]);
+      bool macdFalling   = (macdHist1 < macdHist2);
+      bool bearishClose  = (close1 < close2);
 
-      if(nearEMA && touchedEMA && rsiCrossDn && macdTurnDn && closeBelowEMA)
+      if(nearEMA && pulledBack && rsiInZone && rsiFalling && macdFalling && bearishClose)
       {
          sigType = 1;
          PrintFormat("[SIGNAL] %s | >> SELL PULLBACK << D1=%s RSI=%.1f MACDh=%.5f EMA=%.5f close=%.5f",
@@ -510,13 +514,14 @@ int CheckSignal(int idx, int &sigType)
          return -1;
       }
       if(InpLogEveryCheck)
-         PrintFormat("[SIGNAL] %s | D1=%s PB chk: near=%s touch=%s rsiCross=%s(%.1f<%.0f) macdDn=%s(%.5f<%.5f) closeBelow=%s",
+         PrintFormat("[SIGNAL] %s | D1=%s PB: near=%s pulled=%s rsiZone=%s(%.1f in %.0f-%.0f) rsiDn=%s macdDn=%s(%.5f<%.5f) bearClose=%s",
                      sym, trendStr,
                      nearEMA ? "Y" : "N",
-                     touchedEMA ? "Y" : "N",
-                     rsiCrossDn ? "Y" : "N", rsi[1], InpRSIShortPullback,
-                     macdTurnDn ? "Y" : "N", macdHist1, macdHist2,
-                     closeBelowEMA ? "Y" : "N");
+                     pulledBack ? "Y" : "N",
+                     rsiInZone ? "Y" : "N", rsi[1], InpRSIShortMin, InpRSIShortMax,
+                     rsiFalling ? "Y" : "N",
+                     macdFalling ? "Y" : "N", macdHist1, macdHist2,
+                     bearishClose ? "Y" : "N");
    }
 
    // === SIGNAL 2: DONCHIAN BREAKOUT ===
@@ -525,14 +530,14 @@ int CheckSignal(int idx, int &sigType)
       double highestHigh = iHigh(sym, InpEntryTF, iHighest(sym, InpEntryTF, MODE_HIGH, InpDonchianPeriod, 2));
       double lowestLow   = iLow(sym,  InpEntryTF, iLowest(sym,  InpEntryTF, MODE_LOW,  InpDonchianPeriod, 2));
 
-      if(d1Trend == 1 && close1 > highestHigh && rsi[1] < 75 && macdMain[1] > macdSig[1])
+      if(d1Trend == 1 && close1 > highestHigh && rsi[1] < 80 && macdMain[1] > macdSig[1])
       {
          sigType = 2;
          PrintFormat("[SIGNAL] %s | >> BUY BREAKOUT << close=%.5f > HH=%.5f ADX=%.1f",
                      sym, close1, highestHigh, adxMain[1]);
          return 1;
       }
-      if(d1Trend == -1 && close1 < lowestLow && rsi[1] > 25 && macdMain[1] < macdSig[1])
+      if(d1Trend == -1 && close1 < lowestLow && rsi[1] > 20 && macdMain[1] < macdSig[1])
       {
          sigType = 2;
          PrintFormat("[SIGNAL] %s | >> SELL BREAKOUT << close=%.5f < LL=%.5f ADX=%.1f",
@@ -540,7 +545,7 @@ int CheckSignal(int idx, int &sigType)
          return -1;
       }
       if(InpLogEveryCheck)
-         PrintFormat("[SIGNAL] %s | BO chk: ADX=%.1f>=%.0f close=%.5f HH=%.5f LL=%.5f RSI=%.1f MACD=%.5f sig=%.5f",
+         PrintFormat("[SIGNAL] %s | BO: ADX=%.1f>=%.0f close=%.5f HH=%.5f LL=%.5f RSI=%.1f MACD=%.5f sig=%.5f",
                      sym, adxMain[1], InpBreakoutADXMin, close1, highestHigh, lowestLow,
                      rsi[1], macdMain[1], macdSig[1]);
    }
