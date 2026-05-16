@@ -17,7 +17,7 @@
 //+------------------------------------------------------------------+
 input group "=== Pivot / Trendline ==="
 input ENUM_TIMEFRAMES InpTimeframe     = PERIOD_D1;     // Working Timeframe
-input int    InpPivotLookback          = 3;             // Bars each side for swing pivot
+input int    InpPivotLookback          = 5;             // Bars each side for swing pivot
 input int    InpMinPivotSpacing        = 5;             // Min bars between pivots used for line
 input int    InpScanBars               = 200;           // History bars scanned for pivots
 input double InpBreakBufferATR         = 0.5;           // Break must exceed line by x * ATR
