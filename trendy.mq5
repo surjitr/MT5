@@ -20,7 +20,12 @@ input ENUM_TIMEFRAMES InpTimeframe     = PERIOD_D1;     // Working Timeframe
 input int    InpPivotLookback          = 3;             // Bars each side for swing pivot
 input int    InpMinPivotSpacing        = 5;             // Min bars between pivots used for line
 input int    InpScanBars               = 200;           // History bars scanned for pivots
-input double InpBreakBufferATR         = 0.2;           // Break must exceed line by x * ATR
+input double InpBreakBufferATR         = 0.5;           // Break must exceed line by x * ATR
+
+input group "=== Trend Strength Filter ==="
+input bool   InpUseADXFilter           = true;          // Skip reversals when market is ranging
+input int    InpADXPeriod              = 14;            // ADX period
+input double InpADXMin                 = 20.0;          // Min ADX to trade (range-filter)
 
 input group "=== Risk Management ==="
 input double InpRiskPercent            = 2.0;           // Risk % per trade (SL = pivot beyond)
@@ -71,6 +76,7 @@ struct SSymbolData
 {
    string          name;
    int             hATR;
+   int             hADX;
    datetime        lastBarTime;
    double          pipSize;
    bool            active;
@@ -141,9 +147,10 @@ int OnInit()
       CopyTime(sym, InpTimeframe, 0, InpScanBars + 20, dummy);
 
       g_symbols[idx].hATR = iATR(sym, InpTimeframe, InpATRPeriod);
-      if(g_symbols[idx].hATR == INVALID_HANDLE)
+      g_symbols[idx].hADX = iADX(sym, InpTimeframe, InpADXPeriod);
+      if(g_symbols[idx].hATR == INVALID_HANDLE || g_symbols[idx].hADX == INVALID_HANDLE)
       {
-         PrintFormat("[INIT] ATR failed for %s", sym);
+         PrintFormat("[INIT] Indicator handle failed for %s", sym);
          g_symbols[idx].active = false;
       }
 
@@ -173,7 +180,10 @@ void OnDeinit(const int reason)
 {
    EventKillTimer();
    for(int i = 0; i < g_numSymbols; i++)
+   {
       if(g_symbols[i].hATR != INVALID_HANDLE) IndicatorRelease(g_symbols[i].hATR);
+      if(g_symbols[i].hADX != INVALID_HANDLE) IndicatorRelease(g_symbols[i].hADX);
+   }
    if(InpSingleSymbol) ClearChartObjects(_Symbol);
    Comment("");
 }
@@ -221,6 +231,9 @@ void ProcessSymbol(int idx)
    // 1. Refresh confirmed pivots from history
    DetectPivots(idx);
 
+   // ADX trend-strength check (range filter)
+   bool adxOK = IsADXStrong(idx);
+
    // 2. Bootstrap mode if FLAT
    if(g_symbols[idx].mode == MODE_FLAT)
    {
@@ -232,8 +245,12 @@ void ProcessSymbol(int idx)
                                        ArraySize(g_symbols[idx].pivotLows));
          return;
       }
-      // Bootstrapped — open initial position in current trend direction
-      OpenPosition(idx, g_symbols[idx].mode);
+      // Bootstrapped — open initial position only if trend strong enough
+      if(adxOK)
+         OpenPosition(idx, g_symbols[idx].mode);
+      else
+         PrintFormat("[%s] Bootstrap %s — skipping initial entry (ADX too low)",
+                     sym, ModeStr(g_symbols[idx].mode));
    }
 
    // 3. Build trendline for current mode and check break
@@ -291,10 +308,31 @@ void ProcessSymbol(int idx)
       ClosePosition(sym);
       ENUM_TREND_MODE newMode = (g_symbols[idx].mode == MODE_LONG) ? MODE_SHORT : MODE_LONG;
       g_symbols[idx].mode = newMode;
-      OpenPosition(idx, newMode);
+      // Range-filter: only re-enter in the new direction if ADX confirms strong trend
+      if(adxOK)
+         OpenPosition(idx, newMode);
+      else
+         PrintFormat("[%s] Reversal to %s skipped — ADX below %.1f (ranging)",
+                     sym, ModeStr(newMode), InpADXMin);
    }
 
    DrawTrendline(idx);
+}
+
+//+------------------------------------------------------------------+
+//| ADX range filter                                                  |
+//+------------------------------------------------------------------+
+bool IsADXStrong(int idx)
+{
+   if(!InpUseADXFilter) return true;
+   double adx[2];
+   if(CopyBuffer(g_symbols[idx].hADX, 0, 0, 2, adx) != 2) return false;
+   ArraySetAsSeries(adx, true);
+   bool ok = (adx[1] >= InpADXMin);
+   if(!ok && InpVerboseLog)
+      PrintFormat("[%s] ADX=%.1f < %.1f (ranging — entries blocked)",
+                  g_symbols[idx].name, adx[1], InpADXMin);
+   return ok;
 }
 
 //+------------------------------------------------------------------+
