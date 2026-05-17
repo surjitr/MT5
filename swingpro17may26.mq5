@@ -20,7 +20,7 @@ input ENUM_TIMEFRAMES InpTrendTF       = PERIOD_D1;     // Trend Timeframe
 input int    InpTrendEMAFast           = 50;            // D1 Fast EMA
 input int    InpTrendEMASlow           = 200;           // D1 Slow EMA
 input int    InpTrendADXPeriod         = 14;            // D1 ADX Period
-input double InpTrendADXMin            = 22.0;          // Min ADX to confirm trend (raised)
+input double InpTrendADXMin            = 18.0;          // Min ADX to confirm trend
 input bool   InpUseD1Context           = false;         // Now redundant — trend TF is D1
 input int    InpD1EMA                  = 50;            // D1 EMA (kept for back-compat, unused)
 
@@ -33,12 +33,12 @@ input int    InpDonchianPeriod         = 20;            // Donchian Breakout Per
 input int    InpMACDFast               = 12;            // MACD Fast
 input int    InpMACDSlow               = 26;            // MACD Slow
 input int    InpMACDSignal             = 9;             // MACD Signal
-input double InpRSILongMin             = 45.0;          // Long RSI zone min (tightened)
-input double InpRSILongMax             = 65.0;          // Long RSI zone max
-input double InpRSIShortMin            = 35.0;          // Short RSI zone min
-input double InpRSIShortMax            = 55.0;          // Short RSI zone max (tightened)
-input double InpBreakoutADXMin         = 25.0;          // Min ADX for breakout entries (raised)
-input double InpPullbackMaxATR         = 1.0;           // Max distance from EMA in ATR (tightened)
+input double InpRSILongMin             = 40.0;          // Long RSI zone min
+input double InpRSILongMax             = 70.0;          // Long RSI zone max
+input double InpRSIShortMin            = 30.0;          // Short RSI zone min
+input double InpRSIShortMax            = 60.0;          // Short RSI zone max
+input double InpBreakoutADXMin         = 20.0;          // Min ADX for breakout entries
+input double InpPullbackMaxATR         = 1.5;           // Max distance from EMA in ATR
 
 input group "=== Risk Management ==="
 input double InpRiskPercent            = 1.5;           // Risk % per initial trade (lowered)
@@ -383,21 +383,16 @@ int CheckSignal(int idx, int &sigType)
    double emaDist = MathAbs(close1 - ema[1]);
    bool nearEMA = (emaDist <= InpPullbackMaxATR * atr[1]);
 
-   // Entry-TF EMA must agree with trend direction (kills counter-trend longs/shorts)
-   bool entryEMAUp   = (ema[1] > ema[2]);
-   bool entryEMADown = (ema[1] < ema[2]);
-
    // === PULLBACK ===
-   if(trend == 1 && nearEMA && entryEMAUp)
+   if(trend == 1 && nearEMA)
    {
-      // Real pullback: bar 2 low actually touched at or below EMA, then bar 1 closed back above
-      bool pulled       = (iLow(sym, InpEntryTF, 2) <= ema[2]);
-      bool closedAbove  = (close1 > ema[1]);
-      bool rsiZone      = (rsi[1] >= InpRSILongMin && rsi[1] <= InpRSILongMax);
-      bool rsiUp        = (rsi[1] > rsi[2]);
-      bool macdUp       = (hist1 > hist2 && macdM[1] > macdS[1]);  // hist rising AND MACD above signal
-      bool bullish      = (close1 > close2);
-      if(pulled && closedAbove && rsiZone && rsiUp && macdUp && bullish)
+      // Pullback: bar 2 low came within 0.3 ATR of EMA, current bar shows momentum back up
+      bool pulled  = (iLow(sym, InpEntryTF, 2) <= ema[2] + atr[1] * 0.3);
+      bool rsiZone = (rsi[1] >= InpRSILongMin && rsi[1] <= InpRSILongMax);
+      bool rsiUp   = (rsi[1] > rsi[2]);
+      bool macdUp  = (hist1 > hist2);
+      bool bullish = (close1 > close2);
+      if(pulled && rsiZone && rsiUp && macdUp && bullish)
       {
          sigType = 1;
          PrintFormat("[SIGNAL] %s | >> BUY PULLBACK << RSI=%.1f MACDh=%.5f close=%.5f",
@@ -405,15 +400,14 @@ int CheckSignal(int idx, int &sigType)
          return 1;
       }
    }
-   if(trend == -1 && nearEMA && entryEMADown)
+   if(trend == -1 && nearEMA)
    {
-      bool pulled       = (iHigh(sym, InpEntryTF, 2) >= ema[2]);
-      bool closedBelow  = (close1 < ema[1]);
-      bool rsiZone      = (rsi[1] >= InpRSIShortMin && rsi[1] <= InpRSIShortMax);
-      bool rsiDn        = (rsi[1] < rsi[2]);
-      bool macdDn       = (hist1 < hist2 && macdM[1] < macdS[1]);
-      bool bearish      = (close1 < close2);
-      if(pulled && closedBelow && rsiZone && rsiDn && macdDn && bearish)
+      bool pulled  = (iHigh(sym, InpEntryTF, 2) >= ema[2] - atr[1] * 0.3);
+      bool rsiZone = (rsi[1] >= InpRSIShortMin && rsi[1] <= InpRSIShortMax);
+      bool rsiDn   = (rsi[1] < rsi[2]);
+      bool macdDn  = (hist1 < hist2);
+      bool bearish = (close1 < close2);
+      if(pulled && rsiZone && rsiDn && macdDn && bearish)
       {
          sigType = 1;
          PrintFormat("[SIGNAL] %s | >> SELL PULLBACK << RSI=%.1f MACDh=%.5f close=%.5f",
@@ -422,21 +416,19 @@ int CheckSignal(int idx, int &sigType)
       }
    }
 
-   // === BREAKOUT === (Donchian breach with strong trend confirmation)
+   // === BREAKOUT ===
    double adx1 = tAdx[1];
    if(adx1 >= InpBreakoutADXMin)
    {
       double hh = iHigh(sym, InpEntryTF, iHighest(sym, InpEntryTF, MODE_HIGH, InpDonchianPeriod, 2));
       double ll = iLow(sym,  InpEntryTF, iLowest(sym,  InpEntryTF, MODE_LOW,  InpDonchianPeriod, 2));
-      // Require a meaningful breach, not just a 1-tick break
-      double breachBuf = atr[1] * 0.3;
-      if(trend == 1 && entryEMAUp && close1 > hh + breachBuf && rsi[1] < 75 && macdM[1] > macdS[1] && hist1 > hist2)
+      if(trend == 1 && close1 > hh && rsi[1] < 80 && macdM[1] > macdS[1])
       {
          sigType = 2;
          PrintFormat("[SIGNAL] %s | >> BUY BREAKOUT << close=%.5f > HH=%.5f", sym, close1, hh);
          return 1;
       }
-      if(trend == -1 && entryEMADown && close1 < ll - breachBuf && rsi[1] > 25 && macdM[1] < macdS[1] && hist1 < hist2)
+      if(trend == -1 && close1 < ll && rsi[1] > 20 && macdM[1] < macdS[1])
       {
          sigType = 2;
          PrintFormat("[SIGNAL] %s | >> SELL BREAKOUT << close=%.5f < LL=%.5f", sym, close1, ll);
