@@ -16,47 +16,47 @@
 //| Inputs                                                            |
 //+------------------------------------------------------------------+
 input group "=== Trend Filter (H4) ==="
-input ENUM_TIMEFRAMES InpTrendTF       = PERIOD_H4;     // Trend Timeframe
-input int    InpTrendEMAFast           = 20;            // H4 Fast EMA
-input int    InpTrendEMASlow           = 50;            // H4 Slow EMA
-input int    InpTrendADXPeriod         = 14;            // H4 ADX Period
-input double InpTrendADXMin            = 15.0;          // Min ADX to confirm trend
-input bool   InpUseD1Context           = true;          // Also require D1 EMA50 direction match
-input int    InpD1EMA                  = 50;            // D1 EMA for context
+input ENUM_TIMEFRAMES InpTrendTF       = PERIOD_D1;     // Trend Timeframe
+input int    InpTrendEMAFast           = 50;            // D1 Fast EMA
+input int    InpTrendEMASlow           = 200;           // D1 Slow EMA
+input int    InpTrendADXPeriod         = 14;            // D1 ADX Period
+input double InpTrendADXMin            = 22.0;          // Min ADX to confirm trend (raised)
+input bool   InpUseD1Context           = false;         // Now redundant — trend TF is D1
+input int    InpD1EMA                  = 50;            // D1 EMA (kept for back-compat, unused)
 
-input group "=== Entry Timing (H1) ==="
-input ENUM_TIMEFRAMES InpEntryTF       = PERIOD_H1;     // Entry Timeframe
-input int    InpEntryEMA               = 20;            // H1 Pullback EMA
-input int    InpRSIPeriod              = 14;            // H1 RSI Period
-input int    InpATRPeriod              = 14;            // H1 ATR Period
+input group "=== Entry Timing (H4) ==="
+input ENUM_TIMEFRAMES InpEntryTF       = PERIOD_H4;     // Entry Timeframe
+input int    InpEntryEMA               = 20;            // H4 Pullback EMA
+input int    InpRSIPeriod              = 14;            // H4 RSI Period
+input int    InpATRPeriod              = 14;            // H4 ATR Period
 input int    InpDonchianPeriod         = 20;            // Donchian Breakout Period
 input int    InpMACDFast               = 12;            // MACD Fast
 input int    InpMACDSlow               = 26;            // MACD Slow
 input int    InpMACDSignal             = 9;             // MACD Signal
-input double InpRSILongMin             = 40.0;          // Long RSI zone min
-input double InpRSILongMax             = 70.0;          // Long RSI zone max
-input double InpRSIShortMin            = 30.0;          // Short RSI zone min
-input double InpRSIShortMax            = 60.0;          // Short RSI zone max
-input double InpBreakoutADXMin         = 20.0;          // Min ADX for breakout entries
-input double InpPullbackMaxATR         = 1.5;           // Max distance from EMA in ATR
+input double InpRSILongMin             = 45.0;          // Long RSI zone min (tightened)
+input double InpRSILongMax             = 65.0;          // Long RSI zone max
+input double InpRSIShortMin            = 35.0;          // Short RSI zone min
+input double InpRSIShortMax            = 55.0;          // Short RSI zone max (tightened)
+input double InpBreakoutADXMin         = 25.0;          // Min ADX for breakout entries (raised)
+input double InpPullbackMaxATR         = 1.0;           // Max distance from EMA in ATR (tightened)
 
 input group "=== Risk Management ==="
-input double InpRiskPercent            = 2.5;           // Risk % per initial trade
-input double InpAddRiskPercent         = 1.0;           // Risk % per pyramid add
-input double InpSL_ATR                 = 2.0;           // SL = x * ATR (H1)
-input double InpPartialTP_R            = 1.0;           // Partial TP at x * R (close 50%)
+input double InpRiskPercent            = 1.5;           // Risk % per initial trade (lowered)
+input double InpAddRiskPercent         = 0.75;          // Risk % per pyramid add (lowered)
+input double InpSL_ATR                 = 2.0;           // SL = x * ATR (H4)
+input double InpPartialTP_R            = 2.0;           // Partial TP at x * R (raised — let R:R work)
 input double InpPartialClosePct        = 50.0;          // % of position to close at partial TP
-input double InpTrailStart_R           = 1.0;           // Start trail at x * R profit
-input double InpTrailDist_ATR          = 2.0;           // Trail distance = x * ATR
-input int    InpMaxTrades              = 6;             // Max concurrent positions
-input int    InpMaxPerCurrency         = 2;             // Max positions per currency
-input int    InpMaxPyramidAdds         = 2;             // Max pyramid adds per symbol
-input double InpPyramidTrigger_R       = 1.5;           // Add when running trade is +x*R
+input double InpTrailStart_R           = 2.0;           // Start trail at x * R profit (raised)
+input double InpTrailDist_ATR          = 2.5;           // Trail distance = x * ATR (looser)
+input int    InpMaxTrades              = 4;             // Max concurrent positions (lowered)
+input int    InpMaxPerCurrency         = 1;             // Max positions per currency (lowered)
+input int    InpMaxPyramidAdds         = 1;             // Max pyramid adds per symbol (lowered)
+input double InpPyramidTrigger_R       = 2.0;           // Add when running trade is +x*R (raised)
 input double InpMaxLot                 = 0.50;          // Max total lots per symbol
-input double InpMaxDailyLossPct        = 6.0;           // Daily loss halt
-input double InpMaxDrawdownPct         = 20.0;          // Hard drawdown halt
-input int    InpCooldownBars           = 2;             // Min H1 bars between entries per symbol
-input int    InpMaxHoldBars            = 240;           // Max H1 bars to hold (~10 days)
+input double InpMaxDailyLossPct        = 4.0;           // Daily loss halt (tighter)
+input double InpMaxDrawdownPct         = 15.0;          // Hard drawdown halt (tighter)
+input int    InpCooldownBars           = 4;             // Min H4 bars between entries per symbol
+input int    InpMaxHoldBars            = 60;            // Max H4 bars to hold (~10 trading days)
 
 input group "=== Session & Weekend ==="
 input int    InpSessionStart           = 0;             // Session Start (GMT)
@@ -383,15 +383,21 @@ int CheckSignal(int idx, int &sigType)
    double emaDist = MathAbs(close1 - ema[1]);
    bool nearEMA = (emaDist <= InpPullbackMaxATR * atr[1]);
 
+   // Entry-TF EMA must agree with trend direction (kills counter-trend longs/shorts)
+   bool entryEMAUp   = (ema[1] > ema[2]);
+   bool entryEMADown = (ema[1] < ema[2]);
+
    // === PULLBACK ===
-   if(trend == 1 && nearEMA)
+   if(trend == 1 && nearEMA && entryEMAUp)
    {
-      bool pulled  = (iLow(sym, InpEntryTF, 2) <= ema[2] + atr[1] * 0.5);
-      bool rsiZone = (rsi[1] >= InpRSILongMin && rsi[1] <= InpRSILongMax);
-      bool rsiUp   = (rsi[1] > rsi[2]);
-      bool macdUp  = (hist1 > hist2);
-      bool bullish = (close1 > close2);
-      if(pulled && rsiZone && rsiUp && macdUp && bullish)
+      // Real pullback: bar 2 low actually touched at or below EMA, then bar 1 closed back above
+      bool pulled       = (iLow(sym, InpEntryTF, 2) <= ema[2]);
+      bool closedAbove  = (close1 > ema[1]);
+      bool rsiZone      = (rsi[1] >= InpRSILongMin && rsi[1] <= InpRSILongMax);
+      bool rsiUp        = (rsi[1] > rsi[2]);
+      bool macdUp       = (hist1 > hist2 && macdM[1] > macdS[1]);  // hist rising AND MACD above signal
+      bool bullish      = (close1 > close2);
+      if(pulled && closedAbove && rsiZone && rsiUp && macdUp && bullish)
       {
          sigType = 1;
          PrintFormat("[SIGNAL] %s | >> BUY PULLBACK << RSI=%.1f MACDh=%.5f close=%.5f",
@@ -399,14 +405,15 @@ int CheckSignal(int idx, int &sigType)
          return 1;
       }
    }
-   if(trend == -1 && nearEMA)
+   if(trend == -1 && nearEMA && entryEMADown)
    {
-      bool pulled   = (iHigh(sym, InpEntryTF, 2) >= ema[2] - atr[1] * 0.5);
-      bool rsiZone  = (rsi[1] >= InpRSIShortMin && rsi[1] <= InpRSIShortMax);
-      bool rsiDn    = (rsi[1] < rsi[2]);
-      bool macdDn   = (hist1 < hist2);
-      bool bearish  = (close1 < close2);
-      if(pulled && rsiZone && rsiDn && macdDn && bearish)
+      bool pulled       = (iHigh(sym, InpEntryTF, 2) >= ema[2]);
+      bool closedBelow  = (close1 < ema[1]);
+      bool rsiZone      = (rsi[1] >= InpRSIShortMin && rsi[1] <= InpRSIShortMax);
+      bool rsiDn        = (rsi[1] < rsi[2]);
+      bool macdDn       = (hist1 < hist2 && macdM[1] < macdS[1]);
+      bool bearish      = (close1 < close2);
+      if(pulled && closedBelow && rsiZone && rsiDn && macdDn && bearish)
       {
          sigType = 1;
          PrintFormat("[SIGNAL] %s | >> SELL PULLBACK << RSI=%.1f MACDh=%.5f close=%.5f",
@@ -415,19 +422,21 @@ int CheckSignal(int idx, int &sigType)
       }
    }
 
-   // === BREAKOUT ===
+   // === BREAKOUT === (Donchian breach with strong trend confirmation)
    double adx1 = tAdx[1];
    if(adx1 >= InpBreakoutADXMin)
    {
       double hh = iHigh(sym, InpEntryTF, iHighest(sym, InpEntryTF, MODE_HIGH, InpDonchianPeriod, 2));
       double ll = iLow(sym,  InpEntryTF, iLowest(sym,  InpEntryTF, MODE_LOW,  InpDonchianPeriod, 2));
-      if(trend == 1 && close1 > hh && rsi[1] < 80 && macdM[1] > macdS[1])
+      // Require a meaningful breach, not just a 1-tick break
+      double breachBuf = atr[1] * 0.3;
+      if(trend == 1 && entryEMAUp && close1 > hh + breachBuf && rsi[1] < 75 && macdM[1] > macdS[1] && hist1 > hist2)
       {
          sigType = 2;
          PrintFormat("[SIGNAL] %s | >> BUY BREAKOUT << close=%.5f > HH=%.5f", sym, close1, hh);
          return 1;
       }
-      if(trend == -1 && close1 < ll && rsi[1] > 20 && macdM[1] < macdS[1])
+      if(trend == -1 && entryEMADown && close1 < ll - breachBuf && rsi[1] > 25 && macdM[1] < macdS[1] && hist1 < hist2)
       {
          sigType = 2;
          PrintFormat("[SIGNAL] %s | >> SELL BREAKOUT << close=%.5f < LL=%.5f", sym, close1, ll);
@@ -674,8 +683,12 @@ void ManagePositions()
                        ? (curPrice - openPrice) / slDistInit
                        : (openPrice - curPrice) / slDistInit;
 
-      // Partial TP: close 50% at +1R, move SL to breakeven on remainder
-      bool partialTaken = (StringFind(comment, "PART") >= 0);
+      // Partial TP: close N% at +PartialTP_R, move SL to breakeven on remainder.
+      // Detect "already partialed" by checking if SL is at-or-better-than entry (i.e. BE move done).
+      double pad = 5 * point;
+      bool partialTaken = (posType == POSITION_TYPE_BUY)
+                          ? (sl >= openPrice - pad)
+                          : (sl != 0 && sl <= openPrice + pad);
       if(!partialTaken && rProfit >= InpPartialTP_R && InpPartialClosePct > 0 && InpPartialClosePct < 100)
       {
          double lotStep = SymbolInfoDouble(sym, SYMBOL_VOLUME_STEP);
