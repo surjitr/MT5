@@ -16,19 +16,19 @@
 //| Inputs                                                            |
 //+------------------------------------------------------------------+
 input group "=== Trend Filter (H4) ==="
-input ENUM_TIMEFRAMES InpTrendTF       = PERIOD_D1;     // Trend Timeframe
-input int    InpTrendEMAFast           = 50;            // D1 Fast EMA
-input int    InpTrendEMASlow           = 200;           // D1 Slow EMA
-input int    InpTrendADXPeriod         = 14;            // D1 ADX Period
-input double InpTrendADXMin            = 18.0;          // Min ADX to confirm trend
-input bool   InpUseD1Context           = false;         // Now redundant — trend TF is D1
-input int    InpD1EMA                  = 50;            // D1 EMA (kept for back-compat, unused)
+input ENUM_TIMEFRAMES InpTrendTF       = PERIOD_H4;     // Trend Timeframe
+input int    InpTrendEMAFast           = 20;            // H4 Fast EMA
+input int    InpTrendEMASlow           = 50;            // H4 Slow EMA
+input int    InpTrendADXPeriod         = 14;            // H4 ADX Period
+input double InpTrendADXMin            = 15.0;          // Min ADX to confirm trend
+input bool   InpUseD1Context           = true;          // Also require D1 EMA50 direction match
+input int    InpD1EMA                  = 50;            // D1 EMA for context
 
-input group "=== Entry Timing (H4) ==="
-input ENUM_TIMEFRAMES InpEntryTF       = PERIOD_H4;     // Entry Timeframe
-input int    InpEntryEMA               = 20;            // H4 Pullback EMA
-input int    InpRSIPeriod              = 14;            // H4 RSI Period
-input int    InpATRPeriod              = 14;            // H4 ATR Period
+input group "=== Entry Timing (H1) ==="
+input ENUM_TIMEFRAMES InpEntryTF       = PERIOD_H1;     // Entry Timeframe
+input int    InpEntryEMA               = 20;            // H1 Pullback EMA
+input int    InpRSIPeriod              = 14;            // H1 RSI Period
+input int    InpATRPeriod              = 14;            // H1 ATR Period
 input int    InpDonchianPeriod         = 20;            // Donchian Breakout Period
 input int    InpMACDFast               = 12;            // MACD Fast
 input int    InpMACDSlow               = 26;            // MACD Slow
@@ -41,22 +41,19 @@ input double InpBreakoutADXMin         = 20.0;          // Min ADX for breakout 
 input double InpPullbackMaxATR         = 1.5;           // Max distance from EMA in ATR
 
 input group "=== Risk Management ==="
-input double InpRiskPercent            = 1.5;           // Risk % per initial trade (lowered)
-input double InpAddRiskPercent         = 0.75;          // Risk % per pyramid add (lowered)
-input double InpSL_ATR                 = 2.0;           // SL = x * ATR (H4)
-input double InpPartialTP_R            = 2.0;           // Partial TP at x * R (raised — let R:R work)
-input double InpPartialClosePct        = 50.0;          // % of position to close at partial TP
-input double InpTrailStart_R           = 2.0;           // Start trail at x * R profit (raised)
-input double InpTrailDist_ATR          = 2.5;           // Trail distance = x * ATR (looser)
-input int    InpMaxTrades              = 4;             // Max concurrent positions (lowered)
-input int    InpMaxPerCurrency         = 1;             // Max positions per currency (lowered)
-input int    InpMaxPyramidAdds         = 1;             // Max pyramid adds per symbol (lowered)
-input double InpPyramidTrigger_R       = 2.0;           // Add when running trade is +x*R (raised)
+input double InpRiskPercent            = 2.5;           // Risk % per initial trade
+input double InpAddRiskPercent         = 1.0;           // Risk % per pyramid add
+input double InpSL_ATR                 = 2.0;           // SL = x * ATR (H1)
+input double InpProfitTargetAUD        = 100.0;         // Close trade when profit >= this AUD
+input int    InpMaxTrades              = 6;             // Max concurrent positions
+input int    InpMaxPerCurrency         = 2;             // Max positions per currency
+input int    InpMaxPyramidAdds         = 2;             // Max pyramid adds per symbol
+input double InpPyramidTrigger_R       = 1.5;           // Add when running trade is +x*R
 input double InpMaxLot                 = 0.50;          // Max total lots per symbol
-input double InpMaxDailyLossPct        = 4.0;           // Daily loss halt (tighter)
-input double InpMaxDrawdownPct         = 15.0;          // Hard drawdown halt (tighter)
-input int    InpCooldownBars           = 4;             // Min H4 bars between entries per symbol
-input int    InpMaxHoldBars            = 60;            // Max H4 bars to hold (~10 trading days)
+input double InpMaxDailyLossPct        = 6.0;           // Daily loss halt
+input double InpMaxDrawdownPct         = 20.0;          // Hard drawdown halt
+input int    InpCooldownBars           = 2;             // Min H1 bars between entries per symbol
+input int    InpMaxHoldBars            = 240;           // Max H1 bars to hold (~10 days)
 
 input group "=== Session & Weekend ==="
 input int    InpSessionStart           = 0;             // Session Start (GMT)
@@ -386,8 +383,7 @@ int CheckSignal(int idx, int &sigType)
    // === PULLBACK ===
    if(trend == 1 && nearEMA)
    {
-      // Pullback: bar 2 low came within 0.3 ATR of EMA, current bar shows momentum back up
-      bool pulled  = (iLow(sym, InpEntryTF, 2) <= ema[2] + atr[1] * 0.3);
+      bool pulled  = (iLow(sym, InpEntryTF, 2) <= ema[2] + atr[1] * 0.5);
       bool rsiZone = (rsi[1] >= InpRSILongMin && rsi[1] <= InpRSILongMax);
       bool rsiUp   = (rsi[1] > rsi[2]);
       bool macdUp  = (hist1 > hist2);
@@ -402,11 +398,11 @@ int CheckSignal(int idx, int &sigType)
    }
    if(trend == -1 && nearEMA)
    {
-      bool pulled  = (iHigh(sym, InpEntryTF, 2) >= ema[2] - atr[1] * 0.3);
-      bool rsiZone = (rsi[1] >= InpRSIShortMin && rsi[1] <= InpRSIShortMax);
-      bool rsiDn   = (rsi[1] < rsi[2]);
-      bool macdDn  = (hist1 < hist2);
-      bool bearish = (close1 < close2);
+      bool pulled   = (iHigh(sym, InpEntryTF, 2) >= ema[2] - atr[1] * 0.5);
+      bool rsiZone  = (rsi[1] >= InpRSIShortMin && rsi[1] <= InpRSIShortMax);
+      bool rsiDn    = (rsi[1] < rsi[2]);
+      bool macdDn   = (hist1 < hist2);
+      bool bearish  = (close1 < close2);
       if(pulled && rsiZone && rsiDn && macdDn && bearish)
       {
          sigType = 1;
@@ -623,7 +619,7 @@ double CalculateLotSize(string sym, double sl_distance, double riskPct)
 }
 
 //+------------------------------------------------------------------+
-//| Manage positions: partial TP, breakeven, ATR trail, time exit     |
+//| Manage positions: close at fixed USD profit, time exit            |
 //+------------------------------------------------------------------+
 void ManagePositions()
 {
@@ -633,23 +629,22 @@ void ManagePositions()
       if(ticket == 0) continue;
       if(PositionGetInteger(POSITION_MAGIC) != InpMagic) continue;
 
-      string sym       = PositionGetString(POSITION_SYMBOL);
-      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-      double sl        = PositionGetDouble(POSITION_SL);
-      double tp        = PositionGetDouble(POSITION_TP);
-      double vol       = PositionGetDouble(POSITION_VOLUME);
-      long   posType   = PositionGetInteger(POSITION_TYPE);
-      int    digits    = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
-      double point     = SymbolInfoDouble(sym, SYMBOL_POINT);
-      string comment   = PositionGetString(POSITION_COMMENT);
+      string sym = PositionGetString(POSITION_SYMBOL);
 
-      int idx = GetSymbolIndex(sym);
-      if(idx < 0) continue;
-
-      double atr[];
-      if(CopyBuffer(g_symbols[idx].hATR, 0, 0, 2, atr) != 2) continue;
-      ArraySetAsSeries(atr, true);
-      double atrVal = atr[1];
+      // Fixed profit target (account currency, expected AUD)
+      if(InpProfitTargetAUD > 0)
+      {
+         double profit = PositionGetDouble(POSITION_PROFIT)
+                       + PositionGetDouble(POSITION_SWAP);
+         if(profit >= InpProfitTargetAUD)
+         {
+            g_trade.SetTypeFilling(GetFillingType(sym));
+            if(g_trade.PositionClose(ticket))
+               PrintFormat("[EXIT] %s profit target hit (%.2f %s)",
+                           sym, profit, AccountInfoString(ACCOUNT_CURRENCY));
+            continue;
+         }
+      }
 
       // Time exit
       if(InpMaxHoldBars > 0)
@@ -662,66 +657,6 @@ void ManagePositions()
             if(g_trade.PositionClose(ticket))
                PrintFormat("[EXIT] Time exit %s after %d bars", sym, barsHeld);
             continue;
-         }
-      }
-
-      double slDistInit = MathAbs(openPrice - sl);
-      if(slDistInit <= 0) continue;
-
-      double curPrice = (posType == POSITION_TYPE_BUY)
-                        ? SymbolInfoDouble(sym, SYMBOL_BID)
-                        : SymbolInfoDouble(sym, SYMBOL_ASK);
-      double rProfit = (posType == POSITION_TYPE_BUY)
-                       ? (curPrice - openPrice) / slDistInit
-                       : (openPrice - curPrice) / slDistInit;
-
-      // Partial TP: close N% at +PartialTP_R, move SL to breakeven on remainder.
-      // Detect "already partialed" by checking if SL is at-or-better-than entry (i.e. BE move done).
-      double pad = 5 * point;
-      bool partialTaken = (posType == POSITION_TYPE_BUY)
-                          ? (sl >= openPrice - pad)
-                          : (sl != 0 && sl <= openPrice + pad);
-      if(!partialTaken && rProfit >= InpPartialTP_R && InpPartialClosePct > 0 && InpPartialClosePct < 100)
-      {
-         double lotStep = SymbolInfoDouble(sym, SYMBOL_VOLUME_STEP);
-         double minLot  = SymbolInfoDouble(sym, SYMBOL_VOLUME_MIN);
-         double closeVol = vol * InpPartialClosePct / 100.0;
-         closeVol = MathFloor(closeVol / lotStep) * lotStep;
-         if(closeVol >= minLot && (vol - closeVol) >= minLot)
-         {
-            g_trade.SetTypeFilling(GetFillingType(sym));
-            if(g_trade.PositionClosePartial(ticket, closeVol))
-            {
-               // After partial, move SL to breakeven and tag it in comment
-               double beSL = (posType == POSITION_TYPE_BUY)
-                             ? NormalizeDouble(openPrice + 2 * point, digits)
-                             : NormalizeDouble(openPrice - 2 * point, digits);
-               g_trade.PositionModify(ticket, beSL, tp);
-               PrintFormat("[PARTIAL] %s closed %.2f lots at +%.1fR, SL->BE", sym, closeVol, rProfit);
-            }
-         }
-      }
-
-      // ATR trailing after InpTrailStart_R
-      if(rProfit >= InpTrailStart_R)
-      {
-         if(posType == POSITION_TYPE_BUY)
-         {
-            double newSL = NormalizeDouble(curPrice - InpTrailDist_ATR * atrVal, digits);
-            if(newSL > sl + point)
-            {
-               g_trade.SetTypeFilling(GetFillingType(sym));
-               g_trade.PositionModify(ticket, newSL, tp);
-            }
-         }
-         else if(posType == POSITION_TYPE_SELL)
-         {
-            double newSL = NormalizeDouble(curPrice + InpTrailDist_ATR * atrVal, digits);
-            if(newSL < sl - point || sl == 0)
-            {
-               g_trade.SetTypeFilling(GetFillingType(sym));
-               g_trade.PositionModify(ticket, newSL, tp);
-            }
          }
       }
    }
